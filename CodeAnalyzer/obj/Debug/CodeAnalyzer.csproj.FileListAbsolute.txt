@@ -1,0 +1,6 @@
+C:\Users\monisha\Desktop\CodeAnalyzer\CodeAnalyzer\bin\Debug\CodeAnalyzer.exe.config
+C:\Users\monisha\Desktop\CodeAnalyzer\CodeAnalyzer\bin\Debug\CodeAnalyzer.exe
+C:\Users\monisha\Desktop\CodeAnalyzer\CodeAnalyzer\bin\Debug\CodeAnalyzer.pdb
+C:\Users\monisha\Desktop\CodeAnalyzer\CodeAnalyzer\obj\Debug\CodeAnalyzer.csprojResolveAssemblyReference.cache
+C:\Users\monisha\Desktop\CodeAnalyzer\CodeAnalyzer\obj\Debug\CodeAnalyzer.exe
+C:\Users\monisha\Desktop\CodeAnalyzer\CodeAnalyzer\obj\Debug\CodeAnalyzer.pdb

@@ -1,0 +1,808 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Text;
+
+namespace CodeAnalysis
+{
+  public class Elem  // holds scope information
+  {
+    public string type { get; set; }
+    public string name { get; set; }
+    public int begin { get; set; }
+    public int end { get; set; }
+    public int size { get; set;}
+    public int prog_complexity { get; set; }
+
+    public override string ToString()
+    {
+      StringBuilder temp = new StringBuilder();
+      temp.Append("{");
+      temp.Append(String.Format("{0,-10}", type)).Append(" : ");
+      temp.Append(String.Format("{0,-10}", name)).Append(" : ");
+      temp.Append(String.Format("{0,-5}", begin.ToString()));  // line of scope start
+      temp.Append(String.Format("{0,-5}", end.ToString()));    // line of scope end
+      temp.Append("}");
+      return temp.ToString();
+    }
+  }
+  public class relationelem  // holds relationship information
+  {
+
+      
+      public bool isInheritance { get; set; } //defines relationship type
+      public bool isUsingType { get; set; } //defines relationship type
+      public string a_class { get; set; } // tells about which 2 classes is involved
+      public string b_class { get; set; } // tells about which 2 classes is involved
+      public bool isAggregation { get; set; }   //defines relationship type 
+      public bool isComposition { get; set; } //defines relationship type
+
+
+      public override string ToString()
+      {
+          StringBuilder temp = new StringBuilder();
+          temp.Append("{");
+          temp.Append(String.Format("{0,-10}", a_class));
+          temp.Append(String.Format("{0,-10}", b_class));
+          temp.Append(String.Format("{0,-5}", isInheritance.ToString()));  // line of scope start
+          temp.Append(String.Format("{0,-5}", isComposition.ToString()));
+          temp.Append(String.Format("{0,-5}", isAggregation.ToString()));
+          temp.Append(String.Format("{0,-5}", isUsingType.ToString()));// line of scope end
+          temp.Append("}");
+          return temp.ToString();
+      }
+
+  }
+
+
+  public class Repository
+  {
+    ScopeStack<Elem> stack_ = new ScopeStack<Elem>(); 
+    List<Elem> locations_ = new List<Elem>(); //holds tyoes
+    static Repository instance;
+    List<Elem> class_copy = new List<Elem>(); //holds the info about all the classes
+    public static List<Elem> Copy_buffer = new List<Elem>(); //used to pass values from the betweetfiles list to 2nd parse list 
+    public  List<relationelem>classrelations = new List<relationelem>(); //holds all the relationship info
+    public int prog_comp_count = 0;
+
+  
+
+
+    public Repository()
+    {
+      instance = this;
+    }
+
+    public static Repository getInstance()
+    {
+      return instance;
+    }
+    // provides all actions access to current semiExp
+
+    public CSsemi.CSemiExp semi
+    {
+      get;
+      set;
+    }
+
+    // semi gets line count from toker who counts lines
+    // while reading from its source
+
+    public List<Elem> classLocations // to store all the class information in one list
+    {
+        get { return class_copy; }
+    }
+
+    public int lineCount  // saved by newline rule's action
+    {
+      get { return semi.lineCount; }
+    }
+    public int prevLineCount  // not used in this demo
+    {
+      get;
+      set;
+    }
+    // enables recursively tracking entry and exit from scopes
+
+    public ScopeStack<Elem> stack  // pushed and popped by scope rule's action
+    {
+      get { return stack_; } 
+    }
+    // the locations table is the result returned by parser's actions
+    // in this demo
+
+    public List<Elem> locations
+    {
+      get { return locations_; }
+    }
+
+   
+  }
+  /////////////////////////////////////////////////////////
+  // pushes scope info on stack when entering new scope
+
+  public class PushStack : AAction
+  {
+    Repository repo_;
+
+    public PushStack(Repository repo)
+    {
+      repo_ = repo;
+    }
+    public override void doAction(CSsemi.CSemiExp semi)
+    {
+      Elem elem = new Elem();
+      elem.type = semi[0];  // expects type
+      elem.name = semi[1];  // expects name
+      elem.begin = repo_.semi.lineCount - 1;
+      elem.end = 0;
+      elem.size = elem.end - elem.begin;
+      elem.prog_complexity = -1; ///CHANGED TO 0
+      repo_.stack.push(elem);
+      if (elem.type == "control" || elem.name == "anonymous")
+      {
+          repo_.prog_comp_count++;
+          return;
+      }
+      repo_.locations.Add(elem);
+      if ((elem.type == "class") || (elem.type == "struct") || (elem.type == "enum") || (elem.type == "interface"))
+          repo_.classLocations.Add(elem);
+
+      if (AAction.displaySemi)
+      {
+        Console.Write("\n  line# {0,-5}", repo_.semi.lineCount - 1);
+        Console.Write("entering ");
+        string indent = new string(' ', 2 * repo_.stack.count);
+        Console.Write("{0}", indent);
+        this.display(semi); // defined in abstract action
+      }
+      if(AAction.displayStack)
+        repo_.stack.display();
+    }
+  }
+  /////////////////////////////////////////////////////////
+  // pops scope info from stack when leaving scope
+
+  public class PushStack_rel : AAction
+  {
+      Repository repo_;
+      relationelem temp_relation = new relationelem();
+
+      public PushStack_rel(Repository repo)
+      {
+          repo_ = repo;
+
+      }
+      public override void doAction(CSsemi.CSemiExp semi)
+      {
+          if (semi.Contains("inheritance") != -1)
+          {
+              int loc = semi.Contains("inheritance");
+              if (loc != -1)
+              {
+                  relationelem r_elem = new relationelem();
+                  r_elem.a_class = semi[loc + 1].ToString();
+                  r_elem.b_class = semi[loc + 2].ToString();
+                  r_elem.isInheritance = true;
+                  repo_.classrelations.Add(r_elem);
+              }
+          }            //  rep.classrelations.Add(r_elem)
+
+
+          if (semi.Contains("aggregation") != -1)
+          {
+              int loc = semi.Contains("aggregation");
+              if (loc != -1)
+              {
+                  for (int i = repo_.stack.count - 1; i > 0; i--)
+                  {
+                      if (repo_.stack[i].type == "class")
+                      {
+                          relationelem r_elem = new relationelem();
+                          r_elem.a_class = repo_.stack[i].ToString();
+                          r_elem.b_class = semi[1].ToString();
+                          r_elem.isAggregation = true;
+                          repo_.classrelations.Add(r_elem);
+                      }
+                  }
+
+
+                  if (AAction.displaySemi)
+                  {
+                      //Console.Write("\n  line# {0,-5}", repo_.semi.lineCount - 1);
+                      //Console.Write("entering ");
+                      //string indent = new string(' ', 2 * repo_.stack.count);
+                      //Console.Write("{0}", indent);
+                      //this.display(semi); // defined in abstract action
+
+                  }
+                  if (AAction.displayStack)
+                      repo_.stack.display();
+              }
+          }
+
+      }
+
+ 
+
+
+
+
+  public class PopStack : AAction
+  {
+    Repository repo_;
+
+    public PopStack(Repository repo)
+    {
+      repo_ = repo;
+    }
+    public override void doAction(CSsemi.CSemiExp semi)
+    {
+      Elem elem = new Elem();
+        if(elem.type == "function")
+        {
+            elem.prog_complexity = repo_.prog_comp_count + 1;
+            repo_.prog_comp_count = 0;
+            Console.WriteLine("complexity: {0}", elem.prog_complexity);
+        }
+      try
+      {
+        for (int i = 0; i < repo_.locations.Count; ++i )
+        {
+          Elem temp = repo_.locations[i];
+          if (elem.type == temp.type)
+          {
+            if (elem.name == temp.name)
+            {
+              if ((repo_.locations[i]).end == 0)
+              {
+                (repo_.locations[i]).end = repo_.semi.lineCount;
+                break;
+              }
+            }
+          }
+        }
+      }
+      catch
+      {
+        Console.Write("popped empty stack on semiExp: ");
+        semi.display();
+        return;
+      }
+      CSsemi.CSemiExp local = new CSsemi.CSemiExp();
+      local.Add(elem.type).Add(elem.name);
+      if(local[0] == "control")
+        return;
+
+      if (AAction.displaySemi)
+      {
+        Console.Write("\n  line# {0,-5}", repo_.semi.lineCount);
+        elem.end = repo_.semi.lineCount;
+        Console.Write("leaving  ");
+       // Console.Write("\n size: {0}", (repo_.semi.lineCount - 1) - (repo_.semi.lineCount));
+     //   Console.Write("\n size using inbuilt {0}", elem.size);
+        elem.size = elem.end - elem.begin;
+       // Console.Write("/n after setting {0}", elem.size);
+          Console.Write("\n size: {0}",(elem.end - elem.begin));
+     // Console.Write("\n complexity {0}",repo_.prog_comp_count);
+        string indent = new string(' ', 2 * (repo_.stack.count + 1));
+        Console.Write("{0}", indent);
+        this.display(local); // defined in abstract action
+     //   repo_.prog_comp_count = 0;
+      }
+    }
+  }
+  ////
+
+
+  public class PopStack_ty : AAction
+  {
+      Repository repo_;
+
+      public PopStack_ty(Repository repo)
+      {
+          repo_ = repo;
+      }
+      public override void doAction(CSsemi.CSemiExp semi)
+      {
+          Elem elem = new Elem();
+
+          try
+          {
+              for (int i = 0; i < repo_.locations.Count; ++i)
+              {
+                  Elem temp = repo_.locations[i];
+                  if (elem.type == temp.type)
+                  {
+                      if (elem.name == temp.name)
+                      {
+                          if ((repo_.locations[i]).end == 0)
+                          {
+                              (repo_.locations[i]).end = repo_.semi.lineCount;
+                              break;
+                          }
+                      }
+                  }
+              }
+          }
+          catch
+          {
+              Console.Write("popped empty stack on semiExp: ");
+              semi.display();
+              return;
+          }
+          CSsemi.CSemiExp local = new CSsemi.CSemiExp();
+          local.Add(elem.type).Add(elem.name);
+          if (local[0] == "control")
+              return;
+
+          if (AAction.displaySemi)
+          {
+              Console.Write("\n  line# {0,-5}", repo_.semi.lineCount);
+              elem.end = repo_.semi.lineCount;
+              Console.Write("leaving  ");
+              // Console.Write("\n size: {0}", (repo_.semi.lineCount - 1) - (repo_.semi.lineCount));
+              //   Console.Write("\n size using inbuilt {0}", elem.size);
+              elem.size = elem.end - elem.begin;
+              // Console.Write("/n after setting {0}", elem.size);
+              Console.Write("\n size: {0}", (elem.end - elem.begin));
+              // Console.Write("\n complexity {0}",repo_.prog_comp_count);
+              string indent = new string(' ', 2 * (repo_.stack.count + 1));
+              Console.Write("{0}", indent);
+              this.display(local); // defined in abstract action
+              //   repo_.prog_comp_count = 0;
+          }
+      }
+  }
+
+
+
+      
+      
+      ///////////////////////////////////////////////////////
+  // action to print function signatures - not used in demo
+
+  public class PrintFunction : AAction
+  {
+    Repository repo_;
+
+    public PrintFunction(Repository repo)
+    {
+      repo_ = repo;
+    }
+    public override void display(CSsemi.CSemiExp semi)
+    {
+      Console.Write("\n    line# {0}", repo_.semi.lineCount - 1);
+      Console.Write("\n    ");
+      for (int i = 0; i < semi.count; ++i)
+        if (semi[i] != "\n" && !semi.isComment(semi[i]))
+          Console.Write("{0} ", semi[i]);
+    }
+    public override void doAction(CSsemi.CSemiExp semi)
+    {
+      this.display(semi);
+    }
+  }
+  /////////////////////////////////////////////////////////
+  // concrete printing action, useful for debugging
+
+  public class Print : AAction
+  {
+    Repository repo_;
+
+    public Print(Repository repo)
+    {
+      repo_ = repo;
+    }
+    public override void doAction(CSsemi.CSemiExp semi)
+    {
+      Console.Write("\n  line# {0}", repo_.semi.lineCount - 1);
+      this.display(semi);
+    }
+  }
+  /////////////////////////////////////////////////////////
+  // rule to detect namespace declarations
+
+  public class DetectNamespace : ARule
+  {
+    public override bool test(CSsemi.CSemiExp semi)
+    {
+      int index = semi.Contains("namespace");
+      if (index != -1)
+      {
+        CSsemi.CSemiExp local = new CSsemi.CSemiExp();
+        // create local semiExp with tokens for type and name
+        local.displayNewLines = false;
+        local.Add(semi[index]).Add(semi[index + 1]);
+        doActions(local);
+        return true;
+      }
+      return false;
+    }
+  }
+
+
+  // rule to detect enum declarations
+
+  public class DetectEnum : ARule
+  {
+      public override bool test(CSsemi.CSemiExp semi)
+      {
+          int index = semi.Contains("enum");
+          if (index != -1)
+          {
+              CSsemi.CSemiExp local = new CSsemi.CSemiExp();
+              // create local semiExp with tokens for type and name
+              local.displayNewLines = false;
+              local.Add(semi[index]).Add(semi[index + 1]);
+              doActions(local);
+              return true;
+          }
+          return false;
+      }
+  }
+  /////////////////////////////////////////////////////////
+  // rule to dectect class definitions
+
+  public class DetectClass : ARule
+  {
+    public override bool test(CSsemi.CSemiExp semi)
+    {
+      int indexCL = semi.Contains("class");
+      int indexIF = semi.Contains("interface");
+      int indexST = semi.Contains("struct");
+       
+      int index = Math.Max(indexCL, indexIF);
+      index = Math.Max(index, indexST);
+      if (index != -1)
+      {
+        CSsemi.CSemiExp local = new CSsemi.CSemiExp();
+        // local semiExp with tokens for type and name
+        local.displayNewLines = false;
+        local.Add(semi[index]).Add(semi[index + 1]);
+        doActions(local);
+        return true;
+      }
+      return false;
+    }
+  }
+
+
+  public class DetectDelegate : ARule
+  {
+      public override bool test(CSsemi.CSemiExp semi)
+      {
+          int index = semi.Contains("delegate");
+          if (index != -1)
+          {
+              CSsemi.CSemiExp local = new CSsemi.CSemiExp();
+              // create local semiExp with tokens for type and name
+              local.displayNewLines = false;
+              local.Add(semi[index]).Add(semi[index + 2]);
+              doActions(local);
+              return true;
+          }
+          return false;
+      }
+  }
+
+  /////////////////////////////////////////////////////////
+  // rule to dectect function definitions
+
+  public class DetectFunction : ARule
+  {
+    public static bool isSpecialToken(string token)
+    {
+      string[] SpecialToken = { "if", "for", "foreach", "while", "catch", "using" };
+      foreach (string stoken in SpecialToken)
+        if (stoken == token)
+          return true;
+      return false;
+    }
+    public override bool test(CSsemi.CSemiExp semi)
+    {
+      if (semi[semi.count - 1] != "{")
+        return false;
+
+      int index = semi.FindFirst("(");
+      if (index > 0 && !isSpecialToken(semi[index - 1]))
+      {
+        CSsemi.CSemiExp local = new CSsemi.CSemiExp();
+        local.Add("function").Add(semi[index - 1]);
+        doActions(local);
+        return true;
+      }
+      return false;
+    }
+  }
+
+/// <summary>
+/// /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// 
+/// 
+  public class DetectInheritance : ARule
+  {
+      public override bool test(CSsemi.CSemiExp semi)
+      {
+          int loc = semi.Contains("class");
+          if (loc != -1)
+          {
+              Repository rep = new Repository();
+              if (semi[loc + 2] == ":")
+              {
+                  foreach (Elem e in Repository.Copy_buffer)
+                  {
+                      if ((e.name == semi[loc + 3]) && (e.type == "class"))
+                      {
+                             CSsemi.CSemiExp local = new CSsemi.CSemiExp();
+          local.displayNewLines = false;
+          local.Add("inheritance").Add(semi[loc+1]).Add(semi[loc + 3]);
+        //  local.Add(semi[loc]).Add(semi[loc + 1]);
+		doActions(local);
+          return true;
+   }
+   }
+   }
+   } return false;
+   }    
+  }
+    
+
+/// 
+/// </summary>
+
+  public class DetectComposition : ARule
+  {
+      public override bool test(CSsemi.CSemiExp semi)
+      {
+          int loc = semi.Contains("new");
+          if (loc != -1)
+          {
+              CSsemi.CSemiExp local = new CSsemi.CSemiExp();
+              local.displayNewLines = false;
+              local.Add(semi[loc]).Add(semi[loc + 1]);
+              doActions(local);
+              return true;
+          }
+          return false;/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+          /////////////////////////////////////////////
+      }
+  }
+    /// <summary>
+    /// /////////////////////////////////////////////////////////////////////
+    /// </summary>
+
+  public class DetectAggregation : ARule
+  {
+      public override bool test(CSsemi.CSemiExp semi)
+      {
+          int loc = semi.Contains("new");
+          Repository rep = new Repository();
+
+          if (loc != -1)
+          {
+              foreach (Elem e in Repository.Copy_buffer)
+              {
+                  if ((e.name == semi[loc - 3]) && (e.type == "class"))
+                  {
+                      CSsemi.CSemiExp local = new CSsemi.CSemiExp();
+                      local.displayNewLines = false;
+                      local.Add("Aggregation").Add(semi[loc-3]);
+                      doActions(local);
+                      return true;
+                  }
+              }
+          } return false;
+
+      }
+  }
+    /// <summary>
+    /// ///////////////////////////////////////////////////////////
+
+    
+
+
+
+    /// 
+    /// </summary>
+  public class DetectComp : ARule
+  {
+      public override bool test(CSsemi.CSemiExp semi)
+      {
+          string [] SplToks = { "for", "if", "else", "while","foreach"};
+
+              foreach (string toks in SplToks)
+              {
+                  int index = semi.Contains(toks);
+                  if(index!= -1)
+                  {
+        CSsemi.CSemiExp local = new CSsemi.CSemiExp();
+        // create local semiExp with tokens for type and name
+        local.displayNewLines = false;
+        local.Add("control").Add("anonymous");
+        doActions(local);
+        return true;
+                  }
+              }
+      return false;
+    }
+                  }
+              
+
+
+
+
+  /////////////////////////////////////////////////////////
+  // detect entering anonymous scope
+  // - expects namespace, class, and function scopes
+  //   already handled, so put this rule after those
+  public class DetectAnonymousScope : ARule
+  {
+    public override bool test(CSsemi.CSemiExp semi)
+    {
+      int index = semi.Contains("{");
+      if (index != -1)
+      {
+        CSsemi.CSemiExp local = new CSsemi.CSemiExp();
+        // create local semiExp with tokens for type and name
+        local.displayNewLines = false;
+        local.Add("control").Add("anonymous");
+        doActions(local);
+        return true;
+      }
+      return false;
+    }
+  }
+
+
+
+
+  /////////////////////////////////////////////////////////
+  // detect leaving scope
+
+  public class DetectLeavingScope : ARule
+  {
+    public override bool test(CSsemi.CSemiExp semi)
+    {
+      int index = semi.Contains("}");
+      if (index != -1)
+      {
+        doActions(semi);
+        return true;
+      }
+      return false;
+    }
+  }
+
+
+
+
+    
+    public class BuildCodeAnalyzer
+  {
+    Repository repo = new Repository();
+
+    public BuildCodeAnalyzer(CSsemi.CSemiExp semi)
+    {
+      repo.semi = semi;
+    }
+    public virtual Parser build()
+    {
+      Parser parser = new Parser();
+
+      // decide what to show
+      AAction.displaySemi = true;
+      AAction.displayStack = false;  // this is default so redundant
+
+      // action used for namespaces, classes, and functions
+      PushStack push = new PushStack(repo);
+
+      // capture namespace info
+      DetectNamespace detectNS = new DetectNamespace();
+      detectNS.add(push);
+      parser.add(detectNS);
+
+      // capture class info
+      DetectClass detectCl = new DetectClass();
+      detectCl.add(push);
+      parser.add(detectCl);
+
+      DetectDelegate detectDL = new DetectDelegate();
+      detectDL.add(push);
+      parser.add(detectDL);
+
+
+      // capture function info
+      DetectFunction detectFN = new DetectFunction();
+      detectFN.add(push);
+      parser.add(detectFN);
+
+      DetectEnum detectEN = new DetectEnum();
+      detectEN.add(push);
+      parser.add(detectEN);
+
+
+      DetectComp complex = new DetectComp();
+      complex.add(push);
+      parser.add(complex);
+
+      // handle entering anonymous scopes, e.g., if, while, etc.
+      DetectAnonymousScope anon = new DetectAnonymousScope();
+      anon.add(push);
+      parser.add(anon);
+
+      // handle leaving scopes
+      DetectLeavingScope leave = new DetectLeavingScope();
+      PopStack pop = new PopStack(repo);
+      leave.add(pop);
+      parser.add(leave);
+
+      // parser configured
+      return parser;
+    }
+  }
+
+  public class BuildCodeAnalyzer_types
+  {
+      Repository repo = new Repository();
+
+      public BuildCodeAnalyzer_types(CSsemi.CSemiExp semi)
+      {
+          repo.semi = semi;
+      }
+    public virtual Parser build()
+    {
+      Parser parser = new Parser();
+
+      // decide what to show
+      AAction.displaySemi = true;
+      AAction.displayStack = false;  // this is default so redundant
+
+      // action used for namespaces, classes, and functions
+      PushStack push = new PushStack(repo);
+
+//detect Inheritance elem info
+      DetectInheritance detectIn = new DetectInheritance();
+      detectIn.add(push);
+      parser.add(detectIn);
+      // capture namespace info
+      DetectNamespace detectNS = new DetectNamespace();
+      detectNS.add(push);
+      parser.add(detectNS);
+
+      // capture class info
+      DetectClass detectCl = new DetectClass();
+      detectCl.add(push);
+      parser.add(detectCl);
+
+      // capture aggregation info
+      DetectAggregation detectAg = new DetectAggregation();
+      detectAg.add(push);
+      parser.add(detectAg);
+
+DetectComposition detectComp = new DetectComposition();
+  detectComp.add(push);
+parser.add(detectComp);
+
+        
+        //DetectUsing detectUs = new DetectUsing();
+ //detectUs.add(push);
+//parser.add(detectUs);
+     
+        
+        // handle entering anonymous scopes, e.g., if, while, etc.
+      DetectAnonymousScope anon = new DetectAnonymousScope();
+      anon.add(push);
+      parser.add(anon);
+
+      // handle leaving scopes
+      DetectLeavingScope leave = new DetectLeavingScope();
+      PopStack pop = new PopStack(repo);
+      leave.add(pop);
+      parser.add(leave);
+
+      // parser configured
+      return parser;
+    }
+  }
+}}
